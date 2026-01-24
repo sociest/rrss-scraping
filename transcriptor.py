@@ -5,13 +5,11 @@ from pathlib import Path
 import yt_dlp
 from faster_whisper import WhisperModel
 
-# --- CONFIGURACIÓN PARA TU DELL i5 ---
 # Usamos "small" porque es rápido y preciso. 
 # Si quieres más precisión (pero más lento), cambia a "medium".
 MODEL_SIZE = "small"
 print(f"⚙️  Cargando modelo '{MODEL_SIZE}' (esto descarga unos 500MB la primera vez)...")
 
-# compute_type="int8" es la clave para que vuele en tu CPU sin tarjeta gráfica
 model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
 
 def descargar_audio(url):
@@ -20,7 +18,7 @@ def descargar_audio(url):
     
     opciones = {
         'format': 'bestaudio/best',
-        'outtmpl': 'temp_audio.%(ext)s', # Nombre temporal
+        'outtmpl': 'temp_audio.%(ext)s', 
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -74,10 +72,8 @@ if __name__ == "__main__":
     parser.add_argument("--outdir", default="datos-crudos", help="Carpeta destino para transcripción")
     args = parser.parse_args()
 
-    # Si no pasan URL, usa una de prueba (YouTube funciona sin cookies)
     url = args.url or "https://www.facebook.com/cesardockweilersuarez/videos/1399478394994936"
 
-    # Asegurar carpeta de salida
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
