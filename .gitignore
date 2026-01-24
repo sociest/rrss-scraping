@@ -1,0 +1,42 @@
+# Entorno virtual
+venv/
+env/
+.venv/
+
+# Credenciales y archivos sensibles
+facebook-cookies.json
+cookies.json
+*.secret
+.env
+.env.local
+
+# Datos crudos y privados
+datos-crudos/
+*.jsonl
+comentarios_*.json
+transcripcion_*.txt
+
+# Cache y archivos temporales
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Archivos de navegador/Playwright
+.chromium/
+.firefox/
+.webkit/
