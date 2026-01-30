@@ -1,4 +1,9 @@
-yt-dlp
-faster-whisper
-playwright
+# === Dependencias para Appwrite Function (transcriptor) ===
+# Última versión compatible con Python 3.9
+yt-dlp==2025.10.14
+faster-whisper>=1.0.0
 appwrite>=6.0.0
+
+# === Dependencias opcionales (solo para scripts locales) ===
+# Descomentar si usas los scrapers de Facebook localmente (requiere Python 3.10+)
+# playwright
