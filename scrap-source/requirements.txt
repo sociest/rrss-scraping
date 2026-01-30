@@ -1,3 +1,4 @@
 yt-dlp
 faster-whisper
 playwright
+appwrite>=6.0.0
