@@ -6,7 +6,9 @@ usando Faster-Whisper, guardando el resultado en Appwrite Storage.
 
 import os
 import json
+import base64
 from datetime import datetime
+from typing import Optional, Dict, Any, List
 from appwrite.client import Client
 from appwrite.services.storage import Storage
 from appwrite.input_file import InputFile
@@ -27,7 +29,52 @@ def get_whisper_model():
     return model
 
 
-def descargar_audio(url: str, temp_path: str = "/tmp/temp_audio") -> str | None:
+def get_cookies(body: Dict[str, Any]) -> Optional[str]:
+    """
+    Obtiene las cookies de Facebook desde el body (base64) o desde ENV.
+    Retorna la ruta al archivo de cookies temporal o None.
+    
+    Prioridad:
+    1. cookies_base64 en el body de la petición
+    2. FACEBOOK_COOKIES_BASE64 en variables de entorno
+    3. FACEBOOK_COOKIES_JSON en variables de entorno (JSON directo)
+    """
+    cookies_data = None
+    
+    # Prioridad 1: cookies en base64 desde el body
+    if body.get("cookies_base64"):
+        try:
+            cookies_data = base64.b64decode(body["cookies_base64"]).decode("utf-8")
+        except Exception:
+            pass
+    
+    # Prioridad 2: cookies en base64 desde ENV
+    if not cookies_data and os.environ.get("FACEBOOK_COOKIES_BASE64"):
+        try:
+            cookies_data = base64.b64decode(os.environ["FACEBOOK_COOKIES_BASE64"]).decode("utf-8")
+        except Exception:
+            pass
+    
+    # Prioridad 3: cookies como JSON directo desde ENV
+    if not cookies_data and os.environ.get("FACEBOOK_COOKIES_JSON"):
+        cookies_data = os.environ["FACEBOOK_COOKIES_JSON"]
+    
+    if not cookies_data:
+        return None
+    
+    # Guardar cookies en archivo temporal
+    cookies_path = "/tmp/facebook_cookies.json"
+    try:
+        # Validar que sea JSON válido
+        json.loads(cookies_data)
+        with open(cookies_path, "w", encoding="utf-8") as f:
+            f.write(cookies_data)
+        return cookies_path
+    except (json.JSONDecodeError, IOError):
+        return None
+
+
+def descargar_audio(url: str, cookies_path: Optional[str] = None, temp_path: str = "/tmp/temp_audio") -> Optional[str]:
     """Descarga solo el audio y lo guarda como archivo mp3"""
     opciones = {
         'format': 'bestaudio/best',
@@ -40,6 +87,10 @@ def descargar_audio(url: str, temp_path: str = "/tmp/temp_audio") -> str | None:
         'quiet': True,
         'no_warnings': True
     }
+    
+    # Agregar cookies si están disponibles
+    if cookies_path and os.path.exists(cookies_path):
+        opciones['cookiefile'] = cookies_path
 
     try:
         with yt_dlp.YoutubeDL(opciones) as ydl:
@@ -50,7 +101,7 @@ def descargar_audio(url: str, temp_path: str = "/tmp/temp_audio") -> str | None:
         return None
 
 
-def transcribir(archivo: str) -> dict:
+def transcribir(archivo: str) -> Dict[str, Any]:
     """Usa Whisper para convertir audio a texto"""
     if not os.path.exists(archivo):
         return {"error": "No se encontró el archivo de audio.", "texto": "", "idioma": ""}
@@ -59,7 +110,7 @@ def transcribir(archivo: str) -> dict:
     segments, info = whisper.transcribe(archivo, beam_size=5)
 
     texto_completo = ""
-    segmentos_lista = []
+    segmentos_lista: List[Dict[str, Any]] = []
 
     for segment in segments:
         segmentos_lista.append({
@@ -77,7 +128,7 @@ def transcribir(archivo: str) -> dict:
     }
 
 
-def limpiar(archivo: str):
+def limpiar(archivo: Optional[str]):
     """Borra el archivo temporal"""
     if archivo and os.path.exists(archivo):
         os.remove(archivo)
@@ -90,13 +141,18 @@ def main(context):
     Espera un body JSON con:
     - url: URL del video a transcribir (requerido)
     - filename: Nombre personalizado para el archivo (opcional)
+    - cookies_base64: Cookies de Facebook en base64 (opcional)
     
     Variables de entorno requeridas:
     - APPWRITE_ENDPOINT: Endpoint de Appwrite
     - APPWRITE_PROJECT_ID: ID del proyecto
     - APPWRITE_API_KEY: API Key con permisos de storage
     - APPWRITE_BUCKET_ID: ID del bucket donde guardar transcripciones
+    
+    Variables de entorno opcionales:
     - WHISPER_MODEL_SIZE: Tamaño del modelo (tiny, base, small, medium, large) - default: small
+    - FACEBOOK_COOKIES_BASE64: Cookies de Facebook en base64
+    - FACEBOOK_COOKIES_JSON: Cookies de Facebook como JSON string
     """
     
     # Manejar petición GET (información de la función)
@@ -108,7 +164,8 @@ def main(context):
                 "method": "POST",
                 "body": {
                     "url": "URL del video (Facebook, TikTok, YouTube)",
-                    "filename": "Nombre personalizado (opcional)"
+                    "filename": "Nombre personalizado (opcional)",
+                    "cookies_base64": "Cookies de Facebook en base64 (opcional)"
                 }
             }
         })
@@ -142,17 +199,23 @@ def main(context):
     if missing_env:
         return context.res.json({
             "ok": False,
-            "error": f"Faltan variables de entorno: {', '.join(missing_env)}"
+            "error": "Faltan variables de entorno: {}".format(", ".join(missing_env))
         }, 500)
 
     archivo_audio = None
     archivo_transcripcion = None
+    cookies_path = None
 
     try:
-        context.log(f"⬇️ Descargando audio de: {url}")
+        # Obtener cookies si están disponibles
+        cookies_path = get_cookies(body)
+        if cookies_path:
+            context.log("🍪 Cookies de Facebook cargadas")
+        
+        context.log("⬇️ Descargando audio de: {}".format(url))
         
         # Descargar audio
-        archivo_audio = descargar_audio(url)
+        archivo_audio = descargar_audio(url, cookies_path)
         if not archivo_audio:
             return context.res.json({
                 "ok": False,
@@ -170,11 +233,11 @@ def main(context):
                 "error": resultado["error"]
             }, 500)
 
-        context.log(f"🌍 Idioma detectado: {resultado['idioma'].upper()}")
+        context.log("🌍 Idioma detectado: {}".format(resultado['idioma'].upper()))
 
         # Preparar archivo de transcripción
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        filename = body.get("filename", f"transcripcion_{stamp}")
+        filename = body.get("filename", "transcripcion_{}".format(stamp))
         
         # Crear archivo JSON con toda la información
         transcripcion_data = {
@@ -186,7 +249,7 @@ def main(context):
             "segmentos": resultado["segmentos"]
         }
         
-        archivo_transcripcion = f"/tmp/{filename}.json"
+        archivo_transcripcion = "/tmp/{}.json".format(filename)
         with open(archivo_transcripcion, "w", encoding="utf-8") as f:
             json.dump(transcripcion_data, f, ensure_ascii=False, indent=2)
 
@@ -199,7 +262,7 @@ def main(context):
         storage = Storage(client)
         bucket_id = os.environ.get("APPWRITE_BUCKET_ID")
 
-        context.log(f"📤 Subiendo transcripción al bucket: {bucket_id}")
+        context.log("📤 Subiendo transcripción al bucket: {}".format(bucket_id))
 
         # Subir archivo al bucket
         result = storage.create_file(
@@ -208,19 +271,21 @@ def main(context):
             file=InputFile.from_path(archivo_transcripcion)
         )
 
-        context.log(f"✅ Transcripción guardada con ID: {result['$id']}")
+        context.log("✅ Transcripción guardada con ID: {}".format(result['$id']))
 
+        texto_preview = resultado["texto"][:500] + "..." if len(resultado["texto"]) > 500 else resultado["texto"]
+        
         return context.res.json({
             "ok": True,
             "message": "Transcripción completada y guardada",
             "file_id": result["$id"],
-            "filename": f"{filename}.json",
+            "filename": "{}.json".format(filename),
             "idioma": resultado["idioma"],
-            "texto_preview": resultado["texto"][:500] + "..." if len(resultado["texto"]) > 500 else resultado["texto"]
+            "texto_preview": texto_preview
         })
 
     except Exception as e:
-        context.error(f"❌ Error: {str(e)}")
+        context.error("❌ Error: {}".format(str(e)))
         return context.res.json({
             "ok": False,
             "error": str(e)
@@ -230,3 +295,5 @@ def main(context):
         # Limpiar archivos temporales
         limpiar(archivo_audio)
         limpiar(archivo_transcripcion)
+        limpiar(cookies_path)
+
