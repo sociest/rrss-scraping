@@ -20,6 +20,11 @@ import yt_dlp
 from faster_whisper import WhisperModel
 from playwright.sync_api import sync_playwright
 
+# Limpiar variables de proxy que pueden interferir con Playwright
+for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'NO_PROXY', 'no_proxy']:
+    if proxy_var in os.environ:
+        del os.environ[proxy_var]
+
 # Configuración del modelo Whisper
 MODEL_SIZE = os.environ.get("WHISPER_MODEL_SIZE", "small")
 model = None
@@ -302,12 +307,25 @@ def scrape_facebook_comments(url: str, cookies: List[Dict], max_clicks: int = 30
     comments = []
     
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
+        # Lanzar sin proxy y con argumentos para evitar problemas de conexión
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                '--no-proxy-server',
+                '--disable-dev-shm-usage',
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-gpu'
+            ]
+        )
+        context = browser.new_context(
+            bypass_csp=True,
+            ignore_https_errors=True
+        )
         context.add_cookies(cookies)
         page = context.new_page()
 
-        page.goto(url, wait_until="domcontentloaded")
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
         time.sleep(random.uniform(3, 6))
 
         expand_comments(page, max_clicks=max_clicks)
