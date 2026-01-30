@@ -8,7 +8,7 @@ Herramientas para descargar audio/video de publicaciones en redes sociales y tra
 - 🎙️ Transcripción automática con Whisper
 - 💬 Scraping de comentarios de posts públicos en Facebook
 - 📊 Procesamiento batch de múltiples URLs
-- ☁️ **Appwrite Function** para transcripción serverless con almacenamiento en bucket
+- ☁️ **Appwrite Function** para transcripción y scraping serverless con almacenamiento en bucket
 
 ## Requisitos
 
@@ -48,15 +48,17 @@ python src/transcriptor.py --url "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -
 
 ---
 
-## 🚀 Appwrite Function (Transcriptor Serverless)
+## 🚀 Appwrite Function (Transcriptor + Scraper)
 
-El archivo `src/main.py` es una función de Appwrite que permite transcribir videos y guardar automáticamente las transcripciones en un bucket de Appwrite Storage.
+El archivo `src/main.py` es una función de Appwrite que permite:
+1. **Transcribir videos** de Facebook, TikTok, YouTube
+2. **Scrapear comentarios** de posts de Facebook
 
 ### Configuración en Appwrite
 
 1. **Crear un proyecto** en [Appwrite Console](https://cloud.appwrite.io/console)
 
-2. **Crear un bucket** para almacenar las transcripciones:
+2. **Crear un bucket** para almacenar los resultados:
    - Ve a Storage → Create Bucket
    - Anota el `BUCKET_ID`
 
@@ -66,7 +68,7 @@ El archivo `src/main.py` es una función de Appwrite que permite transcribir vid
 
 4. **Crear la función**:
    - Ve a Functions → Create Function
-   - Selecciona **Python 3.11** como runtime
+   - Selecciona **Python 3.11** como runtime ⚠️ (obligatorio)
    - Configura las variables de entorno:
 
    | Variable | Descripción |
@@ -74,8 +76,9 @@ El archivo `src/main.py` es una función de Appwrite que permite transcribir vid
    | `APPWRITE_ENDPOINT` | `https://cloud.appwrite.io/v1` o tu endpoint |
    | `APPWRITE_PROJECT_ID` | ID de tu proyecto |
    | `APPWRITE_API_KEY` | API Key con permisos de storage |
-   | `APPWRITE_BUCKET_ID` | ID del bucket de transcripciones |
+   | `APPWRITE_BUCKET_ID` | ID del bucket de resultados |
    | `WHISPER_MODEL_SIZE` | `tiny`, `base`, `small`, `medium`, `large` (default: `small`) |
+   | `FACEBOOK_COOKIES_BASE64` | Cookies de Facebook en base64 (opcional) |
 
 5. **Desplegar el código**:
    - Conecta tu repositorio Git o sube manualmente los archivos
@@ -84,46 +87,86 @@ El archivo `src/main.py` es una función de Appwrite que permite transcribir vid
 
 **GET** - Información de la función:
 ```bash
-curl https://[REGION].cloud.appwrite.io/v1/functions/[FUNCTION_ID]/executions
+curl https://[FUNCTION_URL]
 ```
 
-**POST** - Transcribir un video:
+#### Transcribir un video:
 ```bash
 curl -X POST https://[FUNCTION_URL] \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "action": "transcribe",
+    "url": "https://www.youtube.com/watch?v=VIDEO_ID",
     "filename": "mi-transcripcion"
   }'
 ```
 
-### Respuesta exitosa
+#### Scrapear comentarios de Facebook:
+```bash
+# Generar cookies en base64
+COOKIES_B64=$(cat facebook-cookies.json | base64 -w 0)
 
+# Ejecutar scraping
+curl -X POST https://[FUNCTION_URL] \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "scrape",
+    "url": "https://www.facebook.com/user/posts/123456",
+    "cookies_base64": "'"$COOKIES_B64"'",
+    "max_clicks": 30
+  }'
+```
+
+### Respuestas
+
+**Transcripción exitosa:**
 ```json
 {
   "ok": true,
-  "message": "Transcripción completada y guardada",
+  "message": "Transcripción completada",
   "file_id": "abc123xyz",
-  "filename": "mi-transcripcion.json",
+  "filename": "transcripcion_20260130.json",
   "idioma": "es",
   "texto_preview": "Texto de los primeros 500 caracteres..."
 }
 ```
 
-### Formato del archivo guardado
+**Scraping exitoso:**
+```json
+{
+  "ok": true,
+  "message": "Scraping completado",
+  "file_id": "xyz789abc",
+  "filename": "comments_20260130.json",
+  "total_comentarios": 150,
+  "preview": [{"author": "Usuario1", "text": "Comentario..."}]
+}
+```
 
-La transcripción se guarda como JSON en el bucket con la siguiente estructura:
+### Formato de archivos guardados
 
+**Transcripción:**
 ```json
 {
   "url_origen": "https://...",
-  "fecha_transcripcion": "2026-01-29T10:30:00",
+  "fecha_transcripcion": "2026-01-30T10:30:00",
   "idioma": "es",
   "probabilidad_idioma": 0.98,
   "texto_completo": "Transcripción completa aquí...",
   "segmentos": [
-    {"start": 0.0, "end": 2.5, "text": "Primer segmento"},
-    {"start": 2.5, "end": 5.0, "text": "Segundo segmento"}
+    {"start": 0.0, "end": 2.5, "text": "Primer segmento"}
+  ]
+}
+```
+
+**Comentarios:**
+```json
+{
+  "url_origen": "https://...",
+  "fecha_scraping": "2026-01-30T10:30:00",
+  "total_comentarios": 150,
+  "comentarios": [
+    {"author": "Usuario1", "text": "Comentario del usuario..."}
   ]
 }
 ```
